@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 import LoadingIndicator from '../components/LoadingIndicator.vue'
 import PokerCard from '../components/PokerCard.vue'
@@ -9,10 +9,14 @@ const props = defineProps<{
   id: number
 }>()
 
-const { data: table, isPending } = useQuery({
+const { data: table, isPending, refetch } = useQuery({
   queryKey: ['table', props.id],
   queryFn: () => getTable(props.id),
   refetchInterval: 1000
+})
+
+watch(() => props.id, () => {
+  refetch()
 })
 
 </script>
