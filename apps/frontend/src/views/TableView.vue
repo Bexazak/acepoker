@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { CardGroup, OddsCalculator } from 'poker-tools'
 import { computed, ref, watch } from 'vue'
-import { useQuery } from '@tanstack/vue-query'
+import { useMutation, useQuery } from '@tanstack/vue-query'
 import LoadingIndicator from '../components/LoadingIndicator.vue'
 import PokerCard from '../components/PokerCard.vue'
 import { getStrategy, getTable } from '../api'
@@ -21,55 +21,112 @@ watch(() => props.id, () => {
   refetch()
 })
 
-const getStrategyPrepare = () => {
-  let cards: StrategyInfo = {
+//--------------------------------
+
+const { data: strategy, isPending: isPendingMutation, mutateAsync, isError } = useMutation({
+  mutationFn: (card: StrategyInfo) => getStrategy(card)
+})
+
+const getStrategyPrepare = async () => {
+  let cardToString = table.value?.holeCards.map(arr => arr?.join('')).join('|')
+
+  let cards = {
     format: '3blinds-ante',
-    state: `${convertedString.value}:1000|1000|1000|1000`
+    state: `${cardToString}:1000|1000|1000|1000`
   }
-  // let urlEncodedData  = new URLSearchParams(cards).toString()
-  getStrategy(JSON.stringify(cards))
+
+  await mutateAsync(cards)
+
+  if (!isPendingMutation.value) {
+    chooseStrategy(strategy.value)
+  }
+  if (isError.value) {
+    alert('Unable to assist you')
+  }
 }
 
-const { data: strategy, isPending: isPendingStrategy } = useQuery({
-  queryKey: ['strategy'],
-  queryFn: () => getStrategyPrepare
-})
-
-const convertedString = computed(() => {
-  return table.value?.holeCards.map(arr => arr?.join('')).join('|');
-})
-
-let winnerIndex = ref<number>(-1)
-let isRiver = ref<boolean>(false)
-
-const checkWin = () => {
-  let boardCardString = table.value?.communityCards.join('')
-
-  const players = table.value?.holeCards.map(arr => CardGroup.fromString(arr?.join('')))
-  const board = CardGroup.fromString(boardCardString)
-
-  const result = OddsCalculator.calculateWinner(players, board)
-
-  winnerIndex.value = result.findIndex(subArray =>
-    subArray.some(item => item.index === 0)
-  )
+const chooseStrategy = (data) => {
+  if (data) {
+    const maxKey = Object.keys(data).reduce((a, b) => data[a] > data[b] ? a : b)
+    alert(`Suggested strategy: ${maxKey}`)
+  }
 }
 
-const isWinner = computed(() => {
-  return playerIndex => {
-    if (winnerIndex.value === -1 || !isRiver.value) return false
-    return !(winnerIndex.value + 1 === playerIndex && isRiver.value)
+//--------------------------------
+
+interface Card {
+  rank: number;
+  suit: number;
+}
+
+interface HandRank {
+  rank: number;
+  highcards: {
+    cards: Card[];
+  };
+}
+
+interface PlayerHand {
+  index: number;
+  handrank: HandRank;
+}
+
+const compareHands = (hand1: HandRank, hand2: HandRank): number => {
+  if (hand1.rank > hand2.rank) {
+    return 1
+  } else if (hand1.rank < hand2.rank) {
+    return -1
+  } else {
+    // Compare high cards in hand (if rank is equal)
+    for (let i = 0; i < hand1.highcards.cards.length; i++) {
+      if (hand1.highcards.cards[i].rank > hand2.highcards.cards[i].rank) {
+        return 1
+      } else if (hand1.highcards.cards[i].rank < hand2.highcards.cards[i].rank) {
+        return -1
+      }
+    }
+    return 0
   }
-})
+}
+
+const checkWin = (hands: string[], board: string[]): number[] => {
+  const cardGroups = hands.map(hand => CardGroup.fromString(hand))
+  const boardGroup = CardGroup.fromString(board)
+  const result = OddsCalculator.calculateWinner(cardGroups, boardGroup)
+
+  let winningHands: PlayerHand[] = [result[0][0]]
+
+  for (const playerHands of result) {
+    for (const playerHand of playerHands) {
+      const comparison = compareHands(playerHand.handrank, winningHands[0].handrank)
+      if (comparison > 0) {
+        winningHands = [playerHand]
+      } else if (comparison === 0) {
+        if (!winningHands.some(hand => hand.index === playerHand.index)) {
+          winningHands.push(playerHand)
+        }
+      }
+    }
+  }
+  return winningHands.map(hand => hand.index)
+}
+
+let winnerIndex = ref<number[]>([])
 
 watch(() => table.value?.communityCards.length, (newVal) => {
   if (newVal === 5) {
-    isRiver.value = true
-    checkWin()
+    let hands = table.value?.holeCards.map(card => card?.join(''))
+    let board = table.value?.communityCards.join('')
+    winnerIndex.value = checkWin(hands, board)
+  } else {
+    winnerIndex.value = []
   }
-  if (newVal < 5) {
-    winnerIndex.value = -1
-    isRiver.value = false
+})
+
+const isWinner = computed(() => {
+  return playerIndex => {
+    if (!winnerIndex.value.length) return false
+    return !winnerIndex.value.includes(playerIndex)
   }
 })
 
@@ -85,7 +142,7 @@ watch(() => table.value?.communityCards.length, (newVal) => {
             class="border-solid solid border-2 p-2 rounded-xl flex items-center justify-center gap-2 w-full relative"
             :class="{
               'bg-green-200 border-4 border-black': index === 1,
-              'opacity-40': isWinner(index)
+              'opacity-40': isWinner(index - 1)
             }"
           >
             <template v-if="index === 1">
@@ -94,7 +151,7 @@ watch(() => table.value?.communityCards.length, (newVal) => {
                   class="bg-blue-500 text-white p-1 text-xs rounded-tr-lg rounded-bl-lg"
                   @click="getStrategyPrepare"
                 >
-                  Ask AI
+                  {{ isPendingMutation ? 'Wait' : 'Ask AI' }}
                 </button>
               </div>
             </template>

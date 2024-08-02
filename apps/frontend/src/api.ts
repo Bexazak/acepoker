@@ -15,7 +15,7 @@ const tableInfoSchema = tableSchema.pick({
 
 const strategyInfoSchema = z.object({
   format: z.string(),
-  state: z.string() || z.undefined()
+  state: z.string()
 })
 
 const strategySchema = z.object({
@@ -46,20 +46,28 @@ export function getTable(id: number): Promise<Table> {
     .then((data) => tableSchema.parse(data))
 }
 
-export function getStrategy(data: string){
+const mockStrategy: Strategy = {
+  "f": 0.000017974361981032416,
+  "c": 0.14158734679222107,
+  "r1000": 0.19790553617849582,
+  "r497": 0.5892510414123535,
+  "r625": 0.0685708224773407,
+  "r812": 0.0026672857347875834,
+  "r450": 0
+}
+
+export function getStrategy(data: StrategyInfo): Promise<Strategy> {
   return fetch(`/act`, {
     method: 'POST',
     headers: {
       'Authorization': 'dc929e5e5e6d83784baa294a1819dfe1'
     },
-    body: data
+    body: JSON.stringify(data)
   })
     .then((r) => r.json())
-    .then((data) => strategySchema.parse(data))
-    .catch(error => {
-      alert('Unable to assist you')
-      console.error('Error:', error)
-    });
+    // TODO: повертаю замокані дані, бо з API бота приходить помилка, говорить, що format невірний
+    // .then((data) => strategySchema.parse(data))
+    .then(() => mockStrategy)
 }
 
 export function createTable(input: Omit<Table, 'id'>): Promise<Table> {
